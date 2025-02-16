@@ -1,21 +1,27 @@
 package org.algorithm.visualizer;
 
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
+import javafx.scene.media.AudioClip;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.image.Image;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.shape.Circle;
-import javafx.scene.shape.Line;
-import javafx.scene.shape.Rectangle;
+import javafx.scene.paint.ImagePattern;
+import javafx.scene.shape.*;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Stage;
+import javafx.stage.StageStyle;
+import javafx.util.Duration;
 import org.algorithm.client.Client;
 import org.algorithm.components.Node;
 
@@ -23,7 +29,7 @@ public class MazeVisualizer extends Application {
     private static volatile MazeVisualizer instance;
     private static final Object LOCK = new Object();
 
-    private static final int CELL_SIZE = 30;
+    private static final int CELL_SIZE = 50;
     private static final int TURN_TIME = 20; // 15 seconds per turn
 
     public static int MAZE_WIDTH;
@@ -31,7 +37,7 @@ public class MazeVisualizer extends Application {
     public static Node[][] maze;
 
     private static Pane mazePane;
-    private Circle player;
+    private Arc player;
     private static Circle otherPlayer;
     private int playerRow;
     private int playerCol;
@@ -51,6 +57,24 @@ public class MazeVisualizer extends Application {
     private int opponentScore = 0;
     private javax.swing.Timer timer;
     private boolean isGameActive = true;
+    private static final Color BACKGROUND_COLOR = Color.web("#000000");
+    private static final Color WALL_COLOR = Color.web("#2121DE");
+    private static final Color PLAYER_COLOR = Color.web("#FFFF00");
+    private static final Color OPPONENT_COLOR = Color.web("#FF0000");
+    private static final Color PLAYER_PATH_COLOR = Color.web("#FFFF0040");
+    private static final Color OPPONENT_PATH_COLOR = Color.web("#FF000040");
+    private static final Color TEXT_COLOR = Color.web("#FFFFFF");
+    private static final int PLAYER_SIZE = CELL_SIZE*2 / 5;
+    private Rectangle[][] playerPathCells;
+    private Rectangle[][] opponentPathCells;
+    private Arc pacmanArc;
+    private Timeline pacmanAnimation;
+    private AudioClip wakawaka;
+    private AudioClip death;
+    private AudioClip gameStart;
+    private AudioClip victory;
+    private static AudioClip bonus ;
+    private boolean mouthOpen = true;
     // Singleton getter
     public static MazeVisualizer getInstance() {
         MazeVisualizer result = instance;
@@ -89,6 +113,28 @@ public class MazeVisualizer extends Application {
             Thread.sleep(1000);
             System.out.println("Waiting for other player!");
         }
+        wakawaka = new AudioClip(getClass().getResource("/sounds/wakawaka.wav").toExternalForm());
+        death = new AudioClip(getClass().getResource("/sounds/death.wav").toExternalForm());
+        gameStart = new AudioClip(getClass().getResource("/sounds/game_start.wav").toExternalForm());
+        victory = new AudioClip(getClass().getResource("/sounds/victory.wav").toExternalForm());
+        bonus=new AudioClip(getClass().getResource("/sounds/bonus.wav").toExternalForm());
+        initializePacmanAnimation();
+    }
+    private void initializePacmanAnimation() {
+        pacmanArc = new Arc(0, 0, PLAYER_SIZE, PLAYER_SIZE, 45, 270);
+        pacmanArc.setFill(PLAYER_COLOR);
+        pacmanArc.setType(ArcType.ROUND);
+
+        pacmanAnimation = new Timeline(
+                new KeyFrame(Duration.millis(100), e -> {
+                    mouthOpen = !mouthOpen;
+                    pacmanArc.setStartAngle(mouthOpen ? 5 : 45);
+                    pacmanArc.setLength(mouthOpen ? 350 : 270);
+                })
+        );
+        pacmanAnimation.setCycleCount(Timeline.INDEFINITE);
+        pacmanAnimation.play();
+
     }
     private void initializeTimer() {
         timer = new javax.swing.Timer(1000, e -> {
@@ -99,15 +145,7 @@ public class MazeVisualizer extends Application {
         });
         timer.start();
     }
-    public static void updateTheme(String theme) {
-        Platform.runLater(() -> {
-            MazeVisualizer viz = getInstance();
-            if (viz != null && viz.themeLabel != null) {
-                viz.currentTheme = theme;
-                viz.themeLabel.setText("Theme: " + theme);
-            }
-        });
-    }
+
     private void updateTimeLabel() {
         if (timeLabel != null) {
             timeLabel.setText("Time: " + timeRemaining);
@@ -136,8 +174,12 @@ public class MazeVisualizer extends Application {
         Platform.runLater(() -> {
             MazeVisualizer viz = getInstance();
             if (viz != null && viz.isGameActive) {
-                viz.currentScore = score;
-                viz.updateScoreLabels();
+                // Only play sound if score actually changed
+                if (viz.currentScore != score) {
+                    bonus.play();
+                    viz.currentScore = score;
+                    viz.updateScoreLabels();
+                }
             }
         });
     }
@@ -146,8 +188,12 @@ public class MazeVisualizer extends Application {
         Platform.runLater(() -> {
             MazeVisualizer viz = getInstance();
             if (viz != null && viz.isGameActive) {
-                viz.opponentScore = score;
-                viz.updateScoreLabels();
+                // Only play sound if opponent score actually changed
+                if (viz.opponentScore != score) {
+                    bonus.play();
+                    viz.opponentScore = score;
+                    viz.updateScoreLabels();
+                }
             }
         });
     }
@@ -156,6 +202,7 @@ public class MazeVisualizer extends Application {
         scoreLabel.setText("Score: " + currentScore);
         opponentScoreLabel.setText("Opponent: " + opponentScore);
     }
+
 
     @Override
     public void stop() throws Exception {
@@ -169,23 +216,78 @@ public class MazeVisualizer extends Application {
             timer.stop();
         }
     }
-    private void showGameOverAlert(String message, boolean won) {
-        Alert alert = new Alert(Alert.AlertType.INFORMATION);
-        alert.setTitle("Game Over");
-        alert.setHeaderText(null);
+    public void showGameOverAlert(String message, boolean won) {
+        // Stop regular game sounds
+        pacmanAnimation.stop();
 
-        String style = won ?
-                "-fx-background-color: #4CAF50;" :
-                "-fx-background-color: #FF5722;";
 
-        alert.getDialogPane().setStyle(style);
-        alert.setContentText(String.format("""
-            %s
-            Your Score: %d
-            Opponent Score: %d
-            """, message, currentScore, opponentScore));
+        // Play appropriate sound
+        if (won) {
+            victory.play();
+        } else {
+            death.play();
+        }
 
-        alert.showAndWait();
+        // Create custom styled alert
+        Stage dialogStage = new Stage(StageStyle.TRANSPARENT);
+        VBox dialogVbox = new VBox(20);
+        dialogVbox.setAlignment(Pos.CENTER);
+        dialogVbox.setPadding(new Insets(30));
+        dialogVbox.setStyle("""
+            -fx-background-color: #000000;
+            -fx-border-color: #2121DE;
+            -fx-border-width: 3;
+            -fx-border-radius: 10;
+            -fx-background-radius: 10;
+            -fx-effect: dropshadow(gaussian, #0000FF, 20, 0.5, 0, 0);
+            """);
+
+        // Game over title
+        Label titleLabel = new Label("GAME OVER");
+        titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 36));
+        titleLabel.setTextFill(won ? Color.web("#FFD700") : Color.web("#FF0000"));
+        titleLabel.setStyle("-fx-effect: dropshadow(gaussian, " + (won ? "#FFD700" : "#FF0000") + ", 10, 0.7, 0, 0);");
+
+        // Result message
+        Label messageLabel = new Label(message);
+        messageLabel.setFont(Font.font("Arial", FontWeight.BOLD, 24));
+        messageLabel.setTextFill(Color.WHITE);
+
+        // Scores
+        Label scoreLabel = new Label(String.format("Your Score: %d", currentScore));
+        Label opponentScoreLabel = new Label(String.format("Opponent Score: %d", opponentScore));
+        scoreLabel.setFont(Font.font("Arial", FontWeight.BOLD, 20));
+        opponentScoreLabel.setFont(Font.font("Arial", FontWeight.BOLD, 20));
+        scoreLabel.setTextFill(Color.WHITE);
+        opponentScoreLabel.setTextFill(Color.WHITE);
+
+        // Close button
+        Button closeButton = new Button("Close");
+        closeButton.setStyle("""
+            -fx-background-color: #2121DE;
+            -fx-text-fill: white;
+            -fx-font-weight: bold;
+            -fx-font-size: 16;
+            -fx-padding: 10 20;
+            -fx-background-radius: 5;
+            -fx-effect: dropshadow(gaussian, #0000FF, 5, 0.5, 0, 0);
+            """);
+        closeButton.setOnAction(e -> dialogStage.close());
+
+        dialogVbox.getChildren().addAll(titleLabel, messageLabel, scoreLabel, opponentScoreLabel, closeButton);
+
+        Scene dialogScene = new Scene(dialogVbox);
+        dialogScene.setFill(null);
+        dialogStage.setScene(dialogScene);
+
+        // Center the dialog on the screen
+        dialogStage.setOnShown(e -> {
+            Stage mainStage = (Stage) mazePane.getScene().getWindow();
+            dialogStage.setX(mainStage.getX() + (mainStage.getWidth() - dialogStage.getWidth()) / 2);
+            dialogStage.setY(mainStage.getY() + (mainStage.getHeight() - dialogStage.getHeight()) / 2);
+        });
+
+        dialogStage.show();
     }
 
 
@@ -218,72 +320,164 @@ public class MazeVisualizer extends Application {
         });
     }
 
+
     @Override
     public void start(Stage primaryStage) {
         BorderPane root = new BorderPane();
-        root.setStyle("-fx-background-color: #2b2b2b;");
+        root.setStyle("-fx-background-color: #000000;");
+
+        // Create centered maze container
+        StackPane mazeContainer = new StackPane();
+        mazeContainer.setPadding(new Insets(20));
+        mazeContainer.setAlignment(Pos.CENTER); // Ensure StackPane centers its content
 
         mazePane = new Pane();
-        mazePane.setBackground(new Background(new BackgroundFill(Color.web("#3c3f41"), CornerRadii.EMPTY, Insets.EMPTY)));
+        try {
+            Image backgroundImage = new Image(getClass().getResourceAsStream("/images/c.jpg"));//"/images/"+currentTheme.toLowerCase()+".jpg"
+            ImagePattern backgroundPattern = new ImagePattern(backgroundImage);
+            mazePane.setBackground(new Background(new BackgroundFill(backgroundPattern, CornerRadii.EMPTY, Insets.EMPTY)));
+        } catch (Exception e) {
+            System.err.println("Failed to load background image: " + e.getMessage());
+            mazePane.setBackground(new Background(new BackgroundFill(BACKGROUND_COLOR, CornerRadii.EMPTY, Insets.EMPTY)));
+        }
 
-        // Create top status bar
+        // Calculate the exact size needed for the maze
+        double mazeWidth = MAZE_WIDTH * CELL_SIZE;
+        double mazeHeight = MAZE_HEIGHT * CELL_SIZE;
+
+        // Set the preferred size for mazePane
+        mazePane.setPrefSize(mazeWidth, mazeHeight);
+        mazePane.setMaxSize(mazeWidth, mazeHeight);
+        mazePane.setMinSize(mazeWidth, mazeHeight);
+
+        // Wrap mazePane in a centering container
+        VBox centeringBox = new VBox(mazePane);
+        centeringBox.setAlignment(Pos.CENTER);
+
+        // Add the centering container to the mazeContainer
+        mazeContainer.getChildren().add(centeringBox);
+
+        // Set the mazeContainer to grow and center in the available space
+        VBox.setVgrow(mazeContainer, Priority.ALWAYS);
+        HBox.setHgrow(mazeContainer, Priority.ALWAYS);
+
+        // Initialize path tracking arrays
+        playerPathCells = new Rectangle[MAZE_HEIGHT][MAZE_WIDTH];
+        opponentPathCells = new Rectangle[MAZE_HEIGHT][MAZE_WIDTH];
+
+        // Create Pac-Man styled status bar
         HBox statusBar = new HBox(20);
         statusBar.setAlignment(Pos.CENTER);
         statusBar.setPadding(new Insets(10));
-        statusBar.setStyle("-fx-background-color: #3c3f41;");
+        statusBar.setStyle("-fx-background-color: #000000; -fx-border-color: #2121DE; -fx-border-width: 0 0 2 0;");
 
         timeLabel = new Label("Time: 20");
         scoreLabel = new Label("Score: 0");
         opponentScoreLabel = new Label("Opponent: 0");
-        themeLabel = new Label("Theme: " + currentTheme.toUpperCase()); // Initialize themeLabel here
+        themeLabel = new Label("Theme: " + currentTheme.toUpperCase());
 
-        // Style the labels
-        Font statusFont = Font.font("Arial", FontWeight.BOLD, 14);
-        Color textColor = Color.WHITE;
-
-        timeLabel.setFont(statusFont);
-        scoreLabel.setFont(statusFont);
-        opponentScoreLabel.setFont(statusFont);
-        themeLabel.setFont(statusFont);
-        timeLabel.setTextFill(textColor);
-        scoreLabel.setTextFill(textColor);
-        opponentScoreLabel.setTextFill(textColor);
-        themeLabel.setTextFill(textColor);
+        // Style the labels with Pac-Man theme
+        Font arcadeFont = Font.font("Arial", FontWeight.BOLD, 16);
+        styleLabel(timeLabel, arcadeFont);
+        styleLabel(scoreLabel, arcadeFont);
+        styleLabel(opponentScoreLabel, arcadeFont);
+        styleLabel(themeLabel, arcadeFont);
 
         statusBar.getChildren().addAll(timeLabel, themeLabel, scoreLabel, opponentScoreLabel);
         root.setTop(statusBar);
 
-        // Control buttons setup
+        // Create Pac-Man styled control buttons (keeping them as backup)
         HBox controlBox = new HBox(15);
         controlBox.setAlignment(Pos.CENTER);
         controlBox.setPadding(new Insets(15));
-        controlBox.setStyle("-fx-background-color: #3c3f41;");
+        controlBox.setStyle("-fx-background-color: #000000; -fx-border-color: #2121DE; -fx-border-width: 2 0 0 0;");
 
         controlButtons = new Button[] {
-                createStyledButton("↑", "-fx-base: #4CAF50;", -1, 0),
-                createStyledButton("↓", "-fx-base: #4CAF50;", 1, 0),
-                createStyledButton("←", "-fx-base: #2196F3;", 0, -1),
-                createStyledButton("→", "-fx-base: #2196F3;", 0, 1),
-                createStyledButton("↖", "-fx-base: #9C27B0;", -1, -1),
-                createStyledButton("↗", "-fx-base: #9C27B0;", -1, 1),
-                createStyledButton("↙", "-fx-base: #9C27B0;", 1, -1),
-                createStyledButton("↘", "-fx-base: #9C27B0;", 1, 1)
+                createPacManButton("↑", -1, 0),
+                createPacManButton("↓", 1, 0),
+                createPacManButton("←", 0, -1),
+                createPacManButton("→", 0, 1),
+                createPacManButton("↖", -1, -1),
+                createPacManButton("↗", -1, 1),
+                createPacManButton("↙", 1, -1),
+                createPacManButton("↘", 1, 1)
         };
 
         controlBox.getChildren().addAll(controlButtons);
         root.setBottom(controlBox);
-        root.setCenter(mazePane);
+        root.setCenter(mazeContainer);
 
         updateButtonStates(turn);
         regenerateMaze();
 
-        Scene scene = new Scene(root, MAZE_WIDTH * CELL_SIZE + 40, MAZE_HEIGHT * CELL_SIZE + 120);
-        primaryStage.setTitle("Multiplayer Maze Game");
+        // Calculate the window size based on the maze size
+        double windowWidth = Math.max(MAZE_WIDTH * CELL_SIZE + 100, 800); // Minimum width of 800
+        double windowHeight = MAZE_HEIGHT * CELL_SIZE + 200; // Extra space for controls
+
+        Scene scene = new Scene(root, windowWidth, windowHeight);
+
+        // Add keyboard controls
+        scene.setOnKeyPressed(this::handleKeyPress);
+
+        primaryStage.setTitle("Pac-Man Maze Game");
         primaryStage.setScene(scene);
         primaryStage.show();
-
-        // Start the timer when the game begins
+        gameStart.play();
         timer.start();
+    }
+    private void handleKeyPress(KeyEvent event) {
+        if (!turn) return; // Only process keyboard input during player's turn
+
+        switch (event.getText().toLowerCase()) {
+            case "z" -> movePlayer(-1, 0);  // Up
+            case "s" -> movePlayer(1, 0);   // Down
+            case "q" -> movePlayer(0, -1);  // Left
+            case "d" -> movePlayer(0, 1);   // Right
+            case "e" -> movePlayer(-1, 1);  // Top-right
+            case "a" -> movePlayer(-1, -1); // Top-left
+            case "w" -> movePlayer(1, -1);  // Bottom-left
+            case "c" -> movePlayer(1, 1);   // Bottom-right
+        }
+    }
+
+    private void styleLabel(Label label, Font font) {
+        label.setFont(font);
+        label.setTextFill(TEXT_COLOR);
+        label.setStyle("-fx-effect: dropshadow(gaussian, #2121DE, 2, 0.5, 0, 0);");
+    }
+    private Button createPacManButton(String text, int deltaRow, int deltaCol) {
+        Button button = new Button(text);
+        button.setStyle("""
+            -fx-background-color: #2121DE;
+            -fx-text-fill: white;
+            -fx-font-weight: bold;
+            -fx-effect: dropshadow(gaussian, #0000FF, 5, 0.5, 0, 0);
+            -fx-border-color: #4242FF;
+            -fx-border-width: 2;
+            """);
+        button.setFont(Font.font("Arial", 16));
+        button.setMinSize(50, 50);
+        button.setOnAction(e -> movePlayer(deltaRow, deltaCol));
+
+        // Add hover effect
+        button.setOnMouseEntered(e -> button.setStyle("""
+            -fx-background-color: #4242FF;
+            -fx-text-fill: white;
+            -fx-font-weight: bold;
+            -fx-effect: dropshadow(gaussian, #0000FF, 8, 0.8, 0, 0);
+            -fx-border-color: #6363FF;
+            -fx-border-width: 2;
+            """));
+        button.setOnMouseExited(e -> button.setStyle("""
+            -fx-background-color: #2121DE;
+            -fx-text-fill: white;
+            -fx-font-weight: bold;
+            -fx-effect: dropshadow(gaussian, #0000FF, 5, 0.5, 0, 0);
+            -fx-border-color: #4242FF;
+            -fx-border-width: 2;
+            """));
+
+        return button;
     }
 
 
@@ -303,59 +497,79 @@ public class MazeVisualizer extends Application {
 
 
 
-    private Button createStyledButton(String text, String style, int deltaRow, int deltaCol) {
-        Button button = new Button(text);
-        button.setStyle(style + " -fx-text-fill: white; -fx-font-weight: bold;");
-        button.setFont(Font.font("Arial", 16));
-        button.setMinSize(50, 50);
-        if (!text.equals("New Game")) {
-            button.setOnAction(e -> movePlayer(deltaRow, deltaCol));
-        }
-        return button;
-    }
+
 
     private void movePlayer(int deltaRow, int deltaCol) {
         int newRow = playerRow + deltaRow;
         int newCol = playerCol + deltaCol;
 
         if (isValidMove(playerRow, playerCol, newRow, newCol)) {
-            updatePlayerPosition(newRow, newCol);
+            wakawaka.play();
 
+            // Just update rotation without stopping the animation
+            double angle = Math.toDegrees(Math.atan2(deltaRow, deltaCol));
+            pacmanArc.setRotate(angle);
+
+            updatePlayerPosition(newRow, newCol);
             Node currentNode = maze[newRow][newCol];
             client.sendNodeToServer(currentNode);
         }
     }
 
     public void updatePlayerPosition(int newRow, int newCol) {
-        // Validate newRow and newCol
         if (newRow < 0 || newRow >= MAZE_HEIGHT || newCol < 0 || newCol >= MAZE_WIDTH) {
             throw new IllegalArgumentException("Invalid player position: (" + newRow + ", " + newCol + ")");
         }
 
-        // Update the player's position
-        cellRectangles[playerRow][playerCol].setFill(Color.TRANSPARENT);
+        // Add path cell for previous position
+        if (playerPathCells[playerRow][playerCol] == null) {
+            Rectangle pathCell = new Rectangle(
+                    playerCol * CELL_SIZE,
+                    playerRow * CELL_SIZE,
+                    CELL_SIZE,
+                    CELL_SIZE
+            );
+            pathCell.setFill(PLAYER_PATH_COLOR);
+            mazePane.getChildren().add(pathCell);
+            playerPathCells[playerRow][playerCol] = pathCell;
+        }
+
         playerRow = newRow;
         playerCol = newCol;
         player.setCenterX(newCol * CELL_SIZE + CELL_SIZE / 2);
         player.setCenterY(newRow * CELL_SIZE + CELL_SIZE / 2);
-        cellRectangles[newRow][newCol].setFill(Color.LIGHTBLUE);
     }
+
 
     // Method to update the other player's position
     public static void updateOtherPlayerPosition(int newRow, int newCol) {
         Platform.runLater(() -> {
-            if (otherPlayer == null) {
-                // Create the other player's circle if it doesn't exist
-                otherPlayer = new Circle(CELL_SIZE / 3);
-                otherPlayer.setFill(Color.TRANSPARENT);
-                otherPlayer.setStroke(Color.web("#FF5722")); // Different color for the other player
-                otherPlayer.setStrokeWidth(2);
-                mazePane.getChildren().add(otherPlayer);
-            }
+            MazeVisualizer viz = getInstance();
+            if (viz != null) {
+                // Add path cell for opponent
+                if (viz.opponentPathCells[newRow][newCol] == null) {
+                    Rectangle pathCell = new Rectangle(
+                            newCol * CELL_SIZE,
+                            newRow * CELL_SIZE,
+                            CELL_SIZE,
+                            CELL_SIZE
+                    );
+                    pathCell.setFill(OPPONENT_PATH_COLOR);
+                    mazePane.getChildren().add(pathCell);
+                    viz.opponentPathCells[newRow][newCol] = pathCell;
+                }
 
-            // Update the other player's position
-            otherPlayer.setCenterX(newCol * CELL_SIZE + CELL_SIZE / 2);
-            otherPlayer.setCenterY(newRow * CELL_SIZE + CELL_SIZE / 2);
+                if (otherPlayer == null) {
+                    otherPlayer = new Circle(PLAYER_SIZE);
+                    otherPlayer.setFill(OPPONENT_COLOR);
+                    otherPlayer.setStroke(Color.WHITE);
+                    otherPlayer.setStrokeWidth(2);
+                    mazePane.getChildren().add(otherPlayer);
+                }
+
+                otherPlayer.setCenterX(newCol * CELL_SIZE + CELL_SIZE / 2);
+                otherPlayer.setCenterY(newRow * CELL_SIZE + CELL_SIZE / 2);
+            }
         });
     }
 
@@ -403,6 +617,8 @@ public class MazeVisualizer extends Application {
     private void regenerateMaze() {
         mazePane.getChildren().clear();
         cellRectangles = new Rectangle[MAZE_HEIGHT][MAZE_WIDTH];
+        playerPathCells = new Rectangle[MAZE_HEIGHT][MAZE_WIDTH];
+        opponentPathCells = new Rectangle[MAZE_HEIGHT][MAZE_WIDTH];
 
         for (int y = 0; y < MAZE_HEIGHT; y++) {
             for (int x = 0; x < MAZE_WIDTH; x++) {
@@ -415,31 +631,33 @@ public class MazeVisualizer extends Application {
                 mazePane.getChildren().add(bgRect);
                 cellRectangles[y][x] = bgRect;
 
+                // Draw walls with Pac-Man style
                 boolean[] borders = node.getBorders();
-                if (borders[0]) mazePane.getChildren().add(new Line(startX, startY, startX + CELL_SIZE, startY));
-                if (borders[1]) mazePane.getChildren().add(new Line(startX + CELL_SIZE, startY, startX + CELL_SIZE, startY + CELL_SIZE));
-                if (borders[2]) mazePane.getChildren().add(new Line(startX, startY + CELL_SIZE, startX + CELL_SIZE, startY + CELL_SIZE));
-                if (borders[3]) mazePane.getChildren().add(new Line(startX, startY, startX, startY + CELL_SIZE));
+                if (borders[0]) drawPacManWall(startX, startY, startX + CELL_SIZE, startY);
+                if (borders[1]) drawPacManWall(startX + CELL_SIZE, startY, startX + CELL_SIZE, startY + CELL_SIZE);
+                if (borders[2]) drawPacManWall(startX, startY + CELL_SIZE, startX + CELL_SIZE, startY + CELL_SIZE);
+                if (borders[3]) drawPacManWall(startX, startY, startX, startY + CELL_SIZE);
 
+                // Draw node value
                 Label label = new Label(String.valueOf(node.getValue()));
-                label.setFont(Font.font("Arial", FontWeight.MEDIUM, 20));
+                label.setFont(Font.font("Arial", FontWeight.BOLD, 20));
+                label.setTextFill(TEXT_COLOR);
                 label.setLayoutX(startX + (CELL_SIZE - label.getWidth()) / 3);
-                label.setTextFill(Color.WHITE);
-                label.setLayoutY(startY);
+                label.setLayoutY(startY + (CELL_SIZE - label.getWidth()) / 4);
                 label.setAlignment(Pos.CENTER);
                 mazePane.getChildren().add(label);
 
+                // Draw special cells (start/end)
                 if (startNode != null && endNode != null) {
                     if (node.getRow() == startNode.getRow() && node.getColumn() == startNode.getColumn()) {
-                        drawSpecialCell(startX, startY, String.valueOf(node.getValue()), "#4CAF50", "🚩");
+                        drawSpecialPacManCell(startX, startY, String.valueOf(node.getValue()), "#FFD700");
                     } else if (node.getRow() == endNode.getRow() && node.getColumn() == endNode.getColumn()) {
-                        drawSpecialCell(startX, startY, String.valueOf(node.getValue()), "#FF5722", "🏁");
+                        drawSpecialPacManCell(startX, startY, String.valueOf(node.getValue()), "#FF0000");
                     }
                 }
             }
         }
 
-        // Ensure player position is valid
         if (startNode != null) {
             playerRow = startNode.getRow();
             playerCol = startNode.getColumn();
@@ -448,33 +666,42 @@ public class MazeVisualizer extends Application {
             playerCol = 0;
         }
 
-        createPlayer();
-        cellRectangles[playerRow][playerCol].setFill(Color.LIGHTBLUE);
+        createPacManPlayer();
+    }
+    private void drawPacManWall(double startX, double startY, double endX, double endY) {
+        Line wall = new Line(startX, startY, endX, endY);
+        wall.setStroke(WALL_COLOR);
+        wall.setStrokeWidth(3);
+        wall.setStyle("-fx-effect: dropshadow(gaussian, #0000FF, 5, 0.5, 0, 0);");
+        mazePane.getChildren().add(wall);
     }
 
-    private void drawSpecialCell(double x, double y, String value, String color, String emoji) {
+    private void drawSpecialPacManCell(double x, double y, String value, String color) {
         Rectangle rect = new Rectangle(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4);
-        rect.setFill(Color.web(color + "80"));
+        rect.setFill(Color.web(color + "40"));
         rect.setStroke(Color.web(color));
         rect.setStrokeWidth(3);
         rect.setArcWidth(10);
         rect.setArcHeight(10);
+        rect.setStyle("-fx-effect: dropshadow(gaussian, " + color + ", 10, 0.5, 0, 0);");
 
-        Label label = new Label(emoji + " " + value);
-        label.setStyle("-fx-font-family: 'Segoe UI Emoji'; -fx-font-size: 14; -fx-text-fill: " + color + "; -fx-font-weight: bold;");
-        label.setLayoutX(x + 5);
-        label.setLayoutY(y + 8);
 
-        mazePane.getChildren().addAll(rect, label);
+
+        mazePane.getChildren().addAll(rect);
     }
 
-    private void createPlayer() {
-        player = new Circle(CELL_SIZE / 3);
-        player.setFill(Color.TRANSPARENT);
-        player.setStroke(Color.web("#2196F3"));
+    private void createPacManPlayer() {
+        player = pacmanArc;
+        player.setFill(PLAYER_COLOR);
+        player.setStroke(Color.TRANSPARENT);
         player.setStrokeWidth(2);
         updatePlayerPosition(playerRow, playerCol);
         mazePane.getChildren().add(player);
+
+        // Make sure animation is running
+        if (!pacmanAnimation.getStatus().equals(Animation.Status.RUNNING)) {
+            pacmanAnimation.play();
+        }
     }
 
     public static void main(String[] args) {
