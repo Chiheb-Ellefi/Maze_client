@@ -47,7 +47,7 @@ public class MazeVisualizer extends Application {
     private static Button[] controlButtons;
     private Client client;
     static public volatile Boolean turn;
-    private Label themeLabel; // Add new field for theme display
+    private Label themeLabel;
     public static String currentTheme;
     private Label timeLabel;
     private Label scoreLabel;
@@ -75,7 +75,7 @@ public class MazeVisualizer extends Application {
     private AudioClip victory;
     private static AudioClip bonus ;
     private boolean mouthOpen = true;
-    // Singleton getter
+
     public static MazeVisualizer getInstance() {
         MazeVisualizer result = instance;
         if (result == null) {
@@ -157,7 +157,7 @@ public class MazeVisualizer extends Application {
         }
     }
 
-    // Method to handle turn changes
+
     public static void handleTurnChange(boolean isPlayerTurn) {
         Platform.runLater(() -> {
             MazeVisualizer viz = getInstance();
@@ -174,7 +174,7 @@ public class MazeVisualizer extends Application {
         Platform.runLater(() -> {
             MazeVisualizer viz = getInstance();
             if (viz != null && viz.isGameActive) {
-                // Only play sound if score actually changed
+
                 if (viz.currentScore != score) {
                     bonus.play();
                     viz.currentScore = score;
@@ -188,7 +188,7 @@ public class MazeVisualizer extends Application {
         Platform.runLater(() -> {
             MazeVisualizer viz = getInstance();
             if (viz != null && viz.isGameActive) {
-                // Only play sound if opponent score actually changed
+
                 if (viz.opponentScore != score) {
                     bonus.play();
                     viz.opponentScore = score;
@@ -217,18 +217,18 @@ public class MazeVisualizer extends Application {
         }
     }
     public void showGameOverAlert(String message, boolean won) {
-        // Stop regular game sounds
+
         pacmanAnimation.stop();
 
 
-        // Play appropriate sound
+
         if (won) {
             victory.play();
         } else {
             death.play();
         }
 
-        // Create custom styled alert
+
         Stage dialogStage = new Stage(StageStyle.TRANSPARENT);
         VBox dialogVbox = new VBox(20);
         dialogVbox.setAlignment(Pos.CENTER);
@@ -242,7 +242,7 @@ public class MazeVisualizer extends Application {
             -fx-effect: dropshadow(gaussian, #0000FF, 20, 0.5, 0, 0);
             """);
 
-        // Game over title
+
         Label titleLabel = new Label("GAME OVER");
         titleLabel.setFont(Font.font("Arial", FontWeight.BOLD, 36));
         titleLabel.setTextFill(won ? Color.web("#FFD700") : Color.web("#FF0000"));
