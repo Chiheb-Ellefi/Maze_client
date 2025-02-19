@@ -205,7 +205,7 @@ public class Client implements Runnable {
             MazeVisualizer.maze = mazeRec;
             MazeVisualizer.startNode = maze.getStart();
             MazeVisualizer.endNode = maze.getEnd();
-            MazeVisualizer.currentTheme=maze.getTheme();
+            MazeVisualizer.themeProperty.set(maze.getTheme());
         }
     }
 
