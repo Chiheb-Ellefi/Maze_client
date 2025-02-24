@@ -50,7 +50,6 @@
         private static Button[] controlButtons;
         private Client client;
         static public volatile Boolean turn;
-        private Label themeLabel;
 
         public static final StringProperty themeProperty = new SimpleStringProperty("");
         private Label timeLabel;
