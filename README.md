@@ -41,12 +41,4 @@ This is the **JavaFX-based client** for the multiplayer *Labyrinthe de Mots* gam
 
 ---
 
-## 🧑‍💻 Authors
-
-- Rayen Fehri  
-- Ibtihel Khmilli  
-- Chiheb Ellefi  
-
----
-
 **Université de Tunis El Manar – ISI | 2024–2025**
